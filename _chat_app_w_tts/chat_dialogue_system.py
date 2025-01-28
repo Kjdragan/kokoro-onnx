@@ -1,9 +1,8 @@
 import threading
 from queue import Queue
-from typing import Optional, Dict, List
+from typing import Optional, List
 import time
 import keyboard
-import json
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -70,7 +69,8 @@ class VoiceChatSystem:
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
-            except:
+            except Exception as e:
+                print(f"Failed to send to client: {e}")
                 continue
 
     async def process_message(self, message: ChatMessage) -> ChatResponse:

@@ -8,14 +8,12 @@ import logging
 import sounddevice as sd
 from kokoro_onnx import Kokoro
 from onnxruntime import InferenceSession, SessionOptions, GraphOptimizationLevel
-import onnxruntime
 import os
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict
 import numpy as np
 from queue import Queue
 import threading
-from concurrent.futures import ThreadPoolExecutor, Future
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -237,8 +235,8 @@ def run_dialogue() -> PerformanceMetrics:
     player_thread.start()
     
     # Generate audio chunks concurrently
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures: List[Future] = []
+    with threading.ThreadPoolExecutor(max_workers=3) as executor:
+        futures: List[threading.Future] = []
         
         # Submit all generation tasks
         for round_idx in range(len(max(characters, key=lambda x: len(x.lines)).lines)):
@@ -282,60 +280,36 @@ def run_dialogue() -> PerformanceMetrics:
         total_queue_wait_time=total_queue_wait
     )
 
-def print_performance_summary(metrics: PerformanceMetrics):
-    """Print a summary of performance metrics"""
+def calculate_length(text, voice_speed=1.0):
+    # Calculate estimated length based on character count and voice speed
+    char_count = len(text)
+    # Estimate: average English speaker speaks at ~150 words per minute
+    # Average word length is ~5 characters
+    # So ~30 characters per second at normal speed
+    chars_per_second = 30 * voice_speed
+    length_seconds = char_count / chars_per_second
+    return length_seconds
+
+def print_performance_summary(metrics):
     print("\nPerformance Summary:")
-    print(f"Model Warmup Time: {metrics.warmup_time:.2f}s")
     print("\nQueue Statistics:")
     print(f"Average Queue Length: {metrics.average_queue_length:.2f}")
     print(f"Maximum Queue Length: {metrics.max_queue_length}")
-    print(f"Total Queue Wait Time: {metrics.total_queue_wait_time:.2f}s")
-    
+
     print("\nGeneration Analysis:")
-    
-    # Calculate statistics per character
-    char_metrics: Dict[str, List[GenerationMetrics]] = {}
-    for char, gen_metrics in metrics.generation_metrics:
-        if char not in char_metrics:
-            char_metrics[char] = []
-        char_metrics[char].append(gen_metrics)
-    
-    for char, measurements in char_metrics.items():
-        print(f"\n{char}:")
-        text_lengths = [m.text_length for m in measurements]
-        gen_times = [m.generation_time for m in measurements]
-        queue_times = [m.queue_wait_time for m in measurements]
-        total_latencies = [m.total_latency for m in measurements]
-        rt_factors = [m.realtime_factor for m in measurements]
-        audio_lengths = [m.audio_length for m in measurements]
-        
-        print(f"  Avg Text Length: {np.mean(text_lengths):.1f} chars")
-        print(f"  Avg Generation Time: {np.mean(gen_times):.2f}s")
-        print(f"  Avg Queue Wait Time: {np.mean(queue_times):.2f}s")
-        print(f"  Avg Total Latency: {np.mean(total_latencies):.2f}s")
-        print(f"  Avg Audio Length: {np.mean(audio_lengths):.2f}s")
-        print(f"  Avg Realtime Factor: {np.mean(rt_factors):.2f}x")
-        print(f"  Characters/Second: {np.mean([l/t for l,t in zip(text_lengths, gen_times)]):.1f}")
-    
-    # Overall statistics
-    all_text_lengths = [m.text_length for _, m in metrics.generation_metrics]
-    all_gen_times = [m.generation_time for _, m in metrics.generation_metrics]
-    all_queue_times = [m.queue_wait_time for _, m in metrics.generation_metrics]
-    all_latencies = [m.total_latency for _, m in metrics.generation_metrics]
-    all_rt_factors = [m.realtime_factor for _, m in metrics.generation_metrics]
-    
-    print(f"\nOverall Statistics:")
-    print(f"Total Dialogue Time: {metrics.total_time:.2f}s")
-    print(f"Average Text Length: {np.mean(all_text_lengths):.1f} chars")
-    print(f"Average Generation Time: {np.mean(all_gen_times):.2f}s")
-    print(f"Average Queue Wait Time: {np.mean(all_queue_times):.2f}s")
-    print(f"Average Total Latency: {np.mean(all_latencies):.2f}s")
-    print(f"Average Realtime Factor: {np.mean(all_rt_factors):.2f}x")
-    print(f"Average Characters/Second: {np.mean([l/t for l,t in zip(all_text_lengths, all_gen_times)]):.1f}")
-    
-    # Correlation analysis
-    correlation = np.corrcoef(all_text_lengths, all_gen_times)[0,1]
-    print(f"\nCorrelation between text length and generation time: {correlation:.3f}")
+    for speaker, stats in metrics.generation_metrics:
+        print(f"\n{speaker}:")
+        print(f"  Avg Text Length: {stats.text_length:.1f} chars")
+        print(f"  Avg Generation Time: {stats.generation_time:.2f}s")
+        print(f"  Avg Audio Length: {stats.audio_length:.2f}s")
+        print(f"  Avg Realtime Factor: {stats.realtime_factor:.2f}x")
+        print(f"  Characters/Second: {stats.text_length / stats.generation_time:.1f}")
+
+    print("\nOverall Statistics:")
+    print(f"Average Text Length: {np.mean([m.text_length for _, m in metrics.generation_metrics]):.1f} chars")
+    print(f"Average Generation Time: {np.mean([m.generation_time for _, m in metrics.generation_metrics]):.2f}s")
+    print(f"Average Queue Wait Time: {np.mean([m.queue_wait_time for _, m in metrics.generation_metrics]):.2f}s")
+    print(f"Correlation between text length and generation time: {np.corrcoef([m.text_length for _, m in metrics.generation_metrics], [m.generation_time for _, m in metrics.generation_metrics])[0,1]:.3f}")
 
 if __name__ == "__main__":
     try:
