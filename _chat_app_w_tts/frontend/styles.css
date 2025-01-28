@@ -1,0 +1,29 @@
+/* Custom styles can be added here */
+.chat-message {
+    transition: all 0.3s ease;
+}
+
+.chat-message:hover {
+    transform: translateX(2px);
+}
+
+/* Add smooth transitions for status changes */
+#status {
+    transition: color 0.3s ease;
+}
+
+#status.speaking {
+    color: #2563eb;
+}
+
+#status.interrupted {
+    color: #dc2626;
+}
+
+/* Improve input focus states */
+#message-input:focus {
+    outline: none;
+    ring: 2px;
+    ring-color: #3b82f6;
+    border-color: #3b82f6;
+}
